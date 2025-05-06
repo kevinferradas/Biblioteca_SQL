@@ -201,4 +201,73 @@ HAVING COUNT(p.id_libro) = (
 )
 ; 
 
+-- PROCEDIMIENTO ALMACENADO
+use biblioteca;
+DELIMITER $$ 
+CREATE PROCEDURE insertUsuario (p_nombre varchar(20),p_apellido varchar(50), p_fecha_nacimiento date)
+BEGIN
+INSERT INTO usuarios (nombre_usuario, apellido_usuario, fecha_nacimiento, carnet_biblio)
+VALUES (p_nombre,p_apellido,p_fecha_nacimiento, FLOOR(RAND()*(99999999 - 10000000 + 1)) + 10000000 ) ;
 
+END $$
+DELIMITER ;-- importante el espacio entre DELIMITER y ;
+
+CALL insertUsuario ("Bruce","Wayne","1998-06-09");
+
+-- PROCEDIMIENTO ALMACENADO (Store Procedure -> SP)
+-- Insercióncompleta de un libro
+DELIMITER //
+CREATE PROCEDURE insertLibro (
+p_titulo_libro varchar(100),
+ p_ejemplares_stock smallint,
+ p_nombre_editorial varchar(50),
+ p_poblacion varchar(25),
+ p_nombre_autor varchar(50),
+ p_apellido_autor varchar(100),
+ p_epoca varchar(20)
+ )
+BEGIN
+
+-- SET @id_poblacion = (SELECT id_poblacion FROM poblaciones WHERE poblacion = p_poblacion);-- variable global
+
+-- definir variable local
+DECLARE v_id_poblacion int;
+DECLARE v_id_editorial int;
+DECLARE v_id_libro int; 
+/* Encontrar el id de la pòblacion */ 
+SELECT id_poblacion INTO v_id_poblacion FROM poblaciones WHERE poblacion = p_poblacion;
+/* Encontrar el id de la editorial */ 
+SELECT id_editorial INTO v_id_editorial FROM editoriales WHERE nombre_editorial = p_nombre_editorial;
+/* Encontrar el id del libro */ 
+SELECT id_libro INTO v_id_libro FROM libros WHERE titulo_libro = p_titulo_libro;
+
+
+
+IF v_id_poblacion IS NULL THEN 
+	INSERT INTO poblaciones (poblacion) VALUES(p_poblacion);
+    SELECT id_poblacion INTO v_id_poblacion FROM poblaciones WHERE poblacion = p_poblacion;
+END IF;
+
+IF v_id_editorial IS NULL THEN 
+	INSERT INTO editoriales (nombre_editorial,id_poblacion) VALUES(p_nombre_editorial,v_id_poblacion);
+	SELECT id_editorial INTO v_id_editorial FROM editoriales WHERE nombre_editorial = p_nombre_editorial;
+END IF;
+IF v_id_libro IS NULL THEN 
+	INSERT INTO libros (titulo_libro, ejemplares_stock,id_editorial) VALUES(p_titulo_libro,p_ejemplares_stock, v_id_editorial);
+	SELECT id_libro INTO v_id_libro FROM libros WHERE titulo_libro = p_titulo_libro;
+ELSE
+	UPDATE libros SET ejemplares_stock = ejemplares_stock + p_ejemplares_stock WHERE id_libro = v_id_libro; 
+END IF;
+
+END //
+DELIMITER ;
+
+CALL insertLibro (
+"MySQL",
+ 5,
+ "X",
+ "Albacete",
+ "A",
+ "Pérez",
+ "Futuro"
+ );
