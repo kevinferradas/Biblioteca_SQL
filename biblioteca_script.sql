@@ -201,6 +201,7 @@ HAVING COUNT(p.id_libro) = (
 )
 ; 
 
+-- 06/05/2025
 -- PROCEDIMIENTO ALMACENADO
 use biblioteca;
 DELIMITER $$ 
@@ -234,13 +235,15 @@ BEGIN
 DECLARE v_id_poblacion int;
 DECLARE v_id_editorial int;
 DECLARE v_id_libro int; 
+DECLARE v_id_epoca int;
 /* Encontrar el id de la pòblacion */ 
 SELECT id_poblacion INTO v_id_poblacion FROM poblaciones WHERE poblacion = p_poblacion;
 /* Encontrar el id de la editorial */ 
 SELECT id_editorial INTO v_id_editorial FROM editoriales WHERE nombre_editorial = p_nombre_editorial;
 /* Encontrar el id del libro */ 
 SELECT id_libro INTO v_id_libro FROM libros WHERE titulo_libro = p_titulo_libro;
-
+/* Encontrar el id de la epoca */
+SELECT id_epoca INTO v_id_epoca FROM epocas WHERE epoca = p_epoca;
 
 
 IF v_id_poblacion IS NULL THEN 
@@ -258,6 +261,10 @@ IF v_id_libro IS NULL THEN
 ELSE
 	UPDATE libros SET ejemplares_stock = ejemplares_stock + p_ejemplares_stock WHERE id_libro = v_id_libro; 
 END IF;
+IF v_id_epoca IS NULL THEN
+	INSERT INTO epocas (epoca) VALUES(p_epoca);
+    SELECT id_epoca INTO v_id_epoca FROM epocas WHERE epoca = p_epoca;
+END IF;
 
 END //
 DELIMITER ;
@@ -271,3 +278,133 @@ CALL insertLibro (
  "Pérez",
  "Futuro"
  );
+ 
+ -- 07/05/2025
+DROP VIEW IF EXISTS vista_libros;
+CREATE VIEW vista_libros AS
+SELECT li.titulo_libro, li.ejemplares_stock, au.nombre_autor,au.apellido_autor,ep.epoca,ed.nombre_editorial,po.poblacion
+FROM poblaciones po
+NATURAL JOIN editoriales ed
+NATURAL JOIN libros li
+NATURAL JOIN autores_libros al
+NATURAL JOIN autores au
+NATURAL JOIN epocas ep
+ORDER BY li.titulo_libro; 
+
+SELECT * FROM vista_libros; 
+
+
+DELIMITER $$
+-- creación del trigger
+CREATE TRIGGER tr_sencillo
+-- Si se va a ejecutar antes  (BEFORE) o después (AFTER) de 
+-- la acción sobre los datos de la tabla (INSERT, UPDATE, DELETE)
+AFTER INSERT ON usuarios 
+FOR EACH ROW
+BEGIN
+SELECT CONCAT_WS(" ", "Se ha añadido el usuario", new.nombre_usuario, new.apellido_usuario);
+END $$
+DELIMITER ;
+
+DROP TRIGGER IF EXISTS tr_disponibilidad;
+DELIMITER $$
+-- creación del trigger
+CREATE TRIGGER tr_disponibilidad
+-- Si se va a ejecutar antes  (BEFORE) o después (AFTER) de 
+-- la acción sobre los datos de la tabla (INSERT, UPDATE, DELETE)
+BEFORE INSERT ON prestamos  
+FOR EACH ROW
+BEGIN
+DECLARE v_stock int; 
+DECLARE v_libros_prestados int; 
+DECLARE v_prestamos_usuario int;
+SELECT COUNT(id_usuario) INTO v_prestamos_usuario FROM prestamos WHERE id_usuario = new.id_usuario;
+SELECT COUNT(id_libro) INTO v_libros_prestados FROM prestamos WHERE id_libro = new.id_libro and id_usuario = new.id_usuario;
+SELECT ejemplares_stock INTO v_stock FROM libros WHERE id_libro = new.id_libro;
+
+IF v_prestamos_usuario = 2 THEN
+	SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT=" Ya has hecho 2 préstamos";
+END IF;
+
+IF v_libros_prestados = 1 THEN 
+	-- funciona como un return 
+	SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = "Ya tienes el libro prestado";
+END IF;
+
+IF v_stock < 1 THEN 
+SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = "No hay ejemplares disponibles";
+ELSE
+UPDATE libros SET ejemplares_stock = ejemplares_stock - 1 WHERE id_libro = new.id_libro;
+END IF;
+END $$
+DELIMITER ;
+
+INSERT INTO prestamos ( id_usuario,id_libro) VALUES (5,3);
+
+
+-- pendiente: incrementar stock al borrar un préstamos
+DROP TRIGGER IF EXISTS tr_devolucion;
+DELIMITER $$
+-- creación del trigger
+CREATE TRIGGER tr_devolucion
+-- Si se va a ejecutar antes  (BEFORE) o después (AFTER) de 
+-- la acción sobre los datos de la tabla (INSERT, UPDATE, DELETE)
+AFTER DELETE ON prestamos  
+FOR EACH ROW
+BEGIN
+DECLARE v_stock int; 
+SELECT ejemplares_stock INTO v_stock FROM libros WHERE id_libro = old.id_libro;
+
+UPDATE libros SET ejemplares_stock = ejemplares_stock + 1 WHERE id_libro = old.id_libro;
+END $$
+DELIMITER ;
+
+DELETE FROM prestamos WHERE id_libro = 1 and id_usuario = 1;
+
+
+-- FUNCION
+DROP FUNCTION IF EXISTS fn_prestamos;
+DELIMITER $$
+CREATE FUNCTION fn_prestamos ( p_titulo varchar(100))
+RETURNS int 
+DETERMINISTIC 
+BEGIN
+DECLARE v_prestamos int;
+SELECT COUNT(p.id_libro) INTO v_prestamos
+FROM prestamos p
+NATURAL JOIN libros l 
+WHERE l.titulo_libro = p_titulo ;
+RETURN v_prestamos;
+END $$
+DELIMITER ;
+
+SELECT titulo_libro, fn_prestamos (titulo_libro)  as prestamos FROM libros;
+
+-- Los prestamos de libros de cada editorial
+-- ordenado de más a menos
+
+DROP FUNCTION IF EXISTS fn_prestamos_editorial;
+DELIMITER $$
+CREATE FUNCTION fn_prestamos_editorial ( p_editorial varchar(100))
+RETURNS int 
+DETERMINISTIC 
+BEGIN
+DECLARE v_prestamos_editorial int;
+SELECT COUNT(p.id_libro) INTO v_prestamos_editorial
+FROM prestamos p
+NATURAL JOIN libros l
+NATURAL JOIN editoriales e
+WHERE e.nombre_editorial = p_editorial;
+RETURN v_prestamos_editorial;
+END $$
+DELIMITER ;
+
+  
+SELECT nombre_editorial, fn_prestamos_editorial (nombre_editorial)  as prestamos FROM editoriales
+ORDER BY prestamos ASC;
+
+
+
+ 
+ 
+ 
